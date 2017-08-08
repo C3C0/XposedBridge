@@ -2,6 +2,7 @@ package android.app;
 
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
+import android.content.res.CompatibilityInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Build;
@@ -9,11 +10,13 @@ import android.os.IBinder;
 import android.view.Display;
 
 import java.lang.ref.WeakReference;
+import java.util.List;
 import java.util.Map;
 
 import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.XposedBridge;
 
+import static de.robv.android.xposed.XposedHelpers.callMethod;
 import static de.robv.android.xposed.XposedHelpers.findClass;
 import static de.robv.android.xposed.XposedHelpers.findFieldIfExists;
 import static de.robv.android.xposed.XposedHelpers.findMethodExactIfExists;
@@ -50,6 +53,23 @@ public final class AndroidAppHelper {
 		} else {
 			Object resourcesManager = getObjectField(activityThread, "mResourcesManager");
 			return (Map) getObjectField(resourcesManager, "mActiveResources");
+		}
+	}
+
+	private static void addActiveResourceToManager(ActivityThread activityThread, Object resKey, Resources res) {
+		try {
+			if (Build.VERSION.SDK_INT <= 23) {
+				getActiveResources(activityThread).put(resKey, new WeakReference<>(res));
+			} else {
+				Object resourcesManager = getObjectField(activityThread, "mResourcesManager");
+				Object resImpl = callMethod(resourcesManager, "findOrCreateResourcesImplForKeyLocked", resKey);
+				callMethod(res, "setImpl", resImpl);
+				List<WeakReference<Resources>> resourceReferences =
+						(List<WeakReference<Resources>>) getObjectField(resourcesManager, "mResourceReferences");
+				resourceReferences.add(new WeakReference<>(res));
+			}
+		} catch (Throwable t) {
+			XposedBridge.log(t);
 		}
 	}
 
@@ -96,6 +116,18 @@ public final class AndroidAppHelper {
 		}
 	}
 
+	/* For SDK >= 24 */
+	private static Object createResourcesKey(String resDir, String[] splitResDirs, String[] overlayDirs, String[] libDirs,
+											 int displayId, Configuration overrideConfiguration, CompatibilityInfo compatInfo) {
+		try {
+			return newInstance(CLASS_RESOURCES_KEY, resDir, splitResDirs, overlayDirs, libDirs,
+					displayId, overrideConfiguration, compatInfo);
+		} catch (Throwable t) {
+			XposedBridge.log(t);
+			return null;
+		}
+	}
+
 	/** @hide */
 	public static void addActiveResource(String resDir, float scale, boolean isThemeable, Resources resources) {
 		ActivityThread thread = ActivityThread.currentActivityThread();
@@ -103,15 +135,17 @@ public final class AndroidAppHelper {
 			return;
 
 		Object resourcesKey;
-		if (Build.VERSION.SDK_INT <= 16)
+		if (Build.VERSION.SDK_INT >= 24)
+			resourcesKey = createResourcesKey(resDir, null, null, null, Display.DEFAULT_DISPLAY, null, null);
+		else if (Build.VERSION.SDK_INT <= 16)
 			resourcesKey = createResourcesKey(resDir, scale, isThemeable);
-		else if (Build.VERSION.SDK_INT <= 18 || Build.VERSION.SDK_INT >= 23)
+		else if (Build.VERSION.SDK_INT <= 18 || Build.VERSION.SDK_INT == 23)
 			resourcesKey = createResourcesKey(resDir, Display.DEFAULT_DISPLAY, null, scale, isThemeable);
 		else
 			resourcesKey = createResourcesKey(resDir, Display.DEFAULT_DISPLAY, null, scale, null, isThemeable);
 
 		if (resourcesKey != null)
-			getActiveResources(thread).put(resourcesKey, new WeakReference<>(resources));
+			addActiveResourceToManager(thread, resourcesKey, resources);
 	}
 
 	/**
