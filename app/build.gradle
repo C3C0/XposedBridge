@@ -1,28 +1,23 @@
 import com.android.builder.core.BuilderConstants
-
 apply plugin: 'com.android.application'
-
 android {
-    compileSdkVersion 23
-    buildToolsVersion "23.0.3"
-
+    compileSdkVersion 25
+    buildToolsVersion '25.0.0'
     defaultConfig {
         minSdkVersion 15
+        targetSdkVersion 25
     }
-
     sourceSets {
         main {
             java.srcDirs += ['src/main/apacheCommonsLang']
         }
     }
-
     // Only build the release variant
     variantFilter { variant ->
         if (variant.buildType.name != BuilderConstants.RELEASE) {
             variant.ignore = true
         }
     }
-
     // Add the hidden API stub classes to the bootclasspath.
     // As they have to be injected before the official SDK classes and must not be part of the
     // final JAR/APK, the best way seems to compile them in a separate project and use some dirty
@@ -48,8 +43,9 @@ android {
             }
         }
     }
+    productFlavors {
+    }
 }
-
 task generateDocs(type: Javadoc, dependsOn: 'compileReleaseSources') {
     source = file('src/main/java')
     ext.templateDir = file('doclib/template')
@@ -90,7 +86,6 @@ task generateDocs(type: Javadoc, dependsOn: 'compileReleaseSources') {
         addBooleanOption 'hidePackage xposed.dummy', true
     }
 }
-
 task generateStubs(type: Javadoc, dependsOn: 'compileReleaseSources') {
     source = file('src/main/java')
     ext.stubsDir = "$buildDir/api/stub-sources"
@@ -109,28 +104,23 @@ task generateStubs(type: Javadoc, dependsOn: 'compileReleaseSources') {
         addBooleanOption 'hidePackage xposed.dummy', true
     }
 }
-
 task compileStubs(type: JavaCompile, dependsOn: 'generateStubs') {
     source = fileTree(generateStubs.ext.stubsDir)
     destinationDir = file("$buildDir/api/stub-classes")
     options.compilerArgs += '-XDsuppressNotes'
 }
-
 task jarStubs(type: Jar) {
     from compileStubs
     destinationDir = file("$buildDir/api")
     baseName = 'api'
 }
-
 task jarStubsSource(type: Jar) {
     from generateStubs.source
     destinationDir = jarStubs.destinationDir
     baseName = jarStubs.baseName
     classifier = 'sources'
 }
-
 task generateAPI(dependsOn: ['generateDocs', 'generateStubs', 'jarStubs', 'jarStubsSource'])
-
 // Make sure that hiddenapistubs are placed before the Android SDK in app.iml
 // as there doesn't seem to be any way to configure this in Android Studio.
 task fixIml {
@@ -165,5 +155,7 @@ task fixIml {
         printer.print(parse)
     }
 }
-
 tasks.preBuild.dependsOn fixIml
+
+dependencies {
+}
